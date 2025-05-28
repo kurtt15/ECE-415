@@ -1,0 +1,152 @@
+#define BLYNK_TEMPLATE_ID "TMPL68ah_C5e1"
+#define BLYNK_TEMPLATE_NAME "GSR"
+#define BLYNK_AUTH_TOKEN "eFbgkSOW52XoP7s3n_rQdXcqaolFG1pP"
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+// ==== WIFI CONFIG ====
+char ssid[] = "Builder's Hive";
+char pass[] = "Batstateubhive_0";
+
+// ==== OLED CONFIG ====
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// ==== PIN CONFIG ====
+#define GSR_PIN         34
+#define BUZZER_PIN      26
+#define VIBRATION_PIN   27
+#define LED_GREEN_PIN   14
+#define LED_YELLOW_PIN  12
+#define LED_RED_PIN     13
+
+// ==== STRESS THRESHOLDS ====
+#define GSR_THRESHOLD_LOW     1000
+#define GSR_THRESHOLD_MEDIUM  2500
+#define GSR_THRESHOLD_HIGH    3500
+
+BlynkTimer timer;
+int lastStressLevel = 0;  // 0 = Low, 1 = Medium, 2 = High
+
+void setup() {
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  
+  
+  // Set pin modes
+  pinMode(GSR_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(VIBRATION_PIN, OUTPUT);
+  pinMode(LED_GREEN_PIN, OUTPUT);
+  pinMode(LED_YELLOW_PIN, OUTPUT);
+  pinMode(LED_RED_PIN, OUTPUT);
+  // Initialize OLED
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    while (true); // Halt
+  }
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("GSR Monitoring...");
+  display.display();
+  delay(2000);
+  
+
+  
+
+  // Timer for GSR update every second
+  timer.setInterval(1000L, sendGSR);
+}
+
+void sendGSR() {
+  int gsrValue = analogRead(GSR_PIN);
+  float voltage = (gsrValue / 4095.0) * 3.3;
+
+  String stressLabel;
+  int stressLevel;
+
+  // Stress classification
+  if (gsrValue < GSR_THRESHOLD_LOW) {
+    stressLevel = 0;
+    stressLabel = "Low";
+  } else if (gsrValue < GSR_THRESHOLD_MEDIUM) {
+    stressLevel = 1;
+    stressLabel = "Medium";
+  } else {
+    stressLevel = 2;
+    stressLabel = "High";
+  }
+
+  // Send to Blynk
+  Blynk.virtualWrite(V0, gsrValue);       // SuperChart
+  Blynk.virtualWrite(V1, stressLabel);    // Label
+  Blynk.virtualWrite(V2, stressLevel);    // Optional for graphs/indicators
+
+  // Alert if stress rises to High
+  if (stressLevel == 2 && lastStressLevel < 2) {
+    Blynk.logEvent("stress_alert", " High Stress Detected!");
+  }
+
+  lastStressLevel = stressLevel;
+
+  // OLED Display
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print("GSR Value: ");
+  display.println(gsrValue);
+
+  display.setCursor(0, 16);
+  display.print("Voltage: ");
+  display.print(voltage, 2);
+  display.println(" V");
+
+  display.setCursor(0, 32);
+  display.print("Stress: ");
+  display.println(stressLabel);
+
+  display.display();
+
+  // Outputs
+  if (stressLevel == 2) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    digitalWrite(VIBRATION_PIN, HIGH);
+    digitalWrite(LED_GREEN_PIN, LOW);
+    digitalWrite(LED_YELLOW_PIN, LOW);
+    digitalWrite(LED_RED_PIN, HIGH);
+  } else if (stressLevel == 1) {
+    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(VIBRATION_PIN, LOW);
+    digitalWrite(LED_GREEN_PIN, LOW);
+    digitalWrite(LED_YELLOW_PIN, HIGH);
+    digitalWrite(LED_RED_PIN, LOW);
+  } else {
+    digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(VIBRATION_PIN, LOW);
+    digitalWrite(LED_GREEN_PIN, HIGH);
+    digitalWrite(LED_YELLOW_PIN, LOW);
+    digitalWrite(LED_RED_PIN, LOW);
+  }
+
+  // Serial Debug
+  Serial.print("GSR: ");
+  Serial.print(gsrValue);
+  Serial.print(" | Voltage: ");
+  Serial.print(voltage, 2);
+  Serial.print("V | Stress: ");
+  Serial.println(stressLabel);
+}
+
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
